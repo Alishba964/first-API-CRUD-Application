@@ -54,3 +54,25 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/tasks")
+def get_tasks():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tasks")
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: int):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+    row = cur.fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    return dict(row)
