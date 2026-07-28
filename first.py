@@ -1,20 +1,39 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import sqlite3
 
 app = FastAPI()
+DB_file="task.db"
 
-tasks = [
-    {"id": 1, "title": "Buy milk", "done": False},
-    {"id": 2, "title": "Walk the dog", "done": True},
-    {"id": 3, "title": "Finish assignment", "done": False},
-]
+def get_connection():
+    conn=sqlite3.connect(DB_file)
+    conn.row_factory=sqlite3.Row
+    return conn
 
-next_id = 4
+def init_db():
+    conn=get_connection()
+    cur=conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS tasks( 
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    done BOOLEAN NOT NULL DEFAULT 0
+    )""")
 
+    cur.execute("""SELECT COUNT(*) FROM tasks""")
+    count = cur.fetchone()[0]
+
+    if count==0:
+        cur.executemany(
+            "INSERT INTO tasks(title,done) VALUES(?,?)",
+            [("Buy Milk",0),("Finish Assignment",1),("sleep",0)]
+        )
+        conn.commit()
+        conn.close()
+
+init_db()
 
 class TaskCreate(BaseModel):
     title: str
-
 
 class TaskUpdate(BaseModel):
     title: str
@@ -35,51 +54,3 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/tasks")
-def get_tasks():
-    return tasks
-
-
-@app.get("/tasks/{task_id}")
-def get_task(task_id: int):
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
-
-@app.post("/tasks", status_code=201)
-def create_task(new_task: TaskCreate):
-    global next_id
-
-    if not new_task.title.strip():
-        raise HTTPException(status_code=400, detail="Title cannot be empty")
-
-    task = {"id": next_id, "title": new_task.title, "done": False}
-    tasks.append(task)
-    next_id += 1
-    return task
-
-
-@app.put("/tasks/{task_id}")
-def update_task(task_id: int, updated: TaskUpdate):
-    if not updated.title.strip():
-        raise HTTPException(status_code=400, detail="Title cannot be empty")
-
-    for task in tasks:
-        if task["id"] == task_id:
-            task["title"] = updated.title
-            task["done"] = updated.done
-            return task
-
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
-
-@app.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int):
-    for task in tasks:
-        if task["id"] == task_id:
-            tasks.remove(task)
-            return
-
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
