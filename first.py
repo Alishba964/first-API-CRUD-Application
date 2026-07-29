@@ -97,3 +97,43 @@ def create_task(new_task: TaskCreate):
     conn.close()
 
     return dict(row)
+
+
+@app.put("/tasks/{task_id}")
+def update_task(task_id:int , updated : TaskUpdate):
+    if not updated.title.strip():
+        raise HTTPException(status_code=400 , detail="Title can not be empty")
+
+    conn = get_connection()
+    cur=conn.cursor()
+    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
+    row=cur.fetchone()
+
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404 , detail=f"Task {task_id} is not found")
+
+    cur.execute("UPDATE tasks SET title=? , done=? WHERE id=?",(updated.title,updated.done,task_id))
+    conn.commit()
+
+    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
+    row=cur.fetchone()
+    return dict(row)
+
+@app.delete("/tasks/{task_id}",status_code=204)
+def delete_task(task_id:int):
+    conn=get_connection()
+    cur=conn.cursor()
+
+    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
+    row=cur.fetchone()
+
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404,detail=f"Tasks {task_id} not found")
+
+    cur.execute("DELETE FROM tasks WHERE id=?",(task_id,))
+    conn.commit()
+    conn.close()
+    return
+
