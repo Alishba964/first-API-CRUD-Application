@@ -76,3 +76,24 @@ def get_task(task_id: int):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
     return dict(row)
+
+
+@app.post("/tasks", status_code=201)
+def create_task(new_task: TaskCreate):
+    if not new_task.title.strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, done) VALUES (?, ?)",
+        (new_task.title, False)
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+
+    cur.execute("SELECT * FROM tasks WHERE id = ?", (new_id,))
+    row = cur.fetchone()
+    conn.close()
+
+    return dict(row)
