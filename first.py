@@ -1,39 +1,22 @@
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import sqlite3
+
+from repository import PostgresRepository
+from service import TaskService
+
+load_dotenv()
 
 app = FastAPI()
-DB_file="task.db"
 
-def get_connection():
-    conn=sqlite3.connect(DB_file)
-    conn.row_factory=sqlite3.Row
-    return conn
+repository = PostgresRepository(os.getenv("DATABASE_URL"))
+service = TaskService(repository)
 
-def init_db():
-    conn=get_connection()
-    cur=conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS tasks( 
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    done BOOLEAN NOT NULL DEFAULT 0
-    )""")
-
-    cur.execute("""SELECT COUNT(*) FROM tasks""")
-    count = cur.fetchone()[0]
-
-    if count==0:
-        cur.executemany(
-            "INSERT INTO tasks(title,done) VALUES(?,?)",
-            [("Buy Milk",0),("Finish Assignment",1),("sleep",0)]
-        )
-        conn.commit()
-        conn.close()
-
-init_db()
 
 class TaskCreate(BaseModel):
     title: str
+
 
 class TaskUpdate(BaseModel):
     title: str
@@ -42,11 +25,7 @@ class TaskUpdate(BaseModel):
 
 @app.get("/")
 def root():
-    return {
-        "name": "Task API",
-        "version": "1.0",
-        "endpoints": ["/tasks"]
-    }
+    return {"name": "Task API", "version": "1.0", "endpoints": ["/tasks"]}
 
 
 @app.get("/health")
@@ -56,84 +35,39 @@ def health():
 
 @app.get("/tasks")
 def get_tasks():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tasks")
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    return service.list_tasks()
 
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-    row = cur.fetchone()
-    conn.close()
-
-    if row is None:
+    task = service.get_task(task_id)
+    if task is None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
-    return dict(row)
+    return task
 
 
 @app.post("/tasks", status_code=201)
 def create_task(new_task: TaskCreate):
-    if not new_task.title.strip():
-        raise HTTPException(status_code=400, detail="Title cannot be empty")
-
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO tasks (title, done) VALUES (?, ?)",
-        (new_task.title, False)
-    )
-    conn.commit()
-    new_id = cur.lastrowid
-
-    cur.execute("SELECT * FROM tasks WHERE id = ?", (new_id,))
-    row = cur.fetchone()
-    conn.close()
-
-    return dict(row)
+    try:
+        return service.create_task(new_task.title)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.put("/tasks/{task_id}")
-def update_task(task_id:int , updated : TaskUpdate):
-    if not updated.title.strip():
-        raise HTTPException(status_code=400 , detail="Title can not be empty")
+def update_task(task_id: int, updated: TaskUpdate):
+    try:
+        task = service.update_task(task_id, updated.title, updated.done)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
 
-    conn = get_connection()
-    cur=conn.cursor()
-    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
-    row=cur.fetchone()
 
-    if row is None:
-        conn.close()
-        raise HTTPException(status_code=404 , detail=f"Task {task_id} is not found")
-
-    cur.execute("UPDATE tasks SET title=? , done=? WHERE id=?",(updated.title,updated.done,task_id))
-    conn.commit()
-
-    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
-    row=cur.fetchone()
-    return dict(row)
-
-@app.delete("/tasks/{task_id}",status_code=204)
-def delete_task(task_id:int):
-    conn=get_connection()
-    cur=conn.cursor()
-
-    cur.execute("SELECT * FROM tasks WHERE id=?",(task_id,))
-    row=cur.fetchone()
-
-    if row is None:
-        conn.close()
-        raise HTTPException(status_code=404,detail=f"Tasks {task_id} not found")
-
-    cur.execute("DELETE FROM tasks WHERE id=?",(task_id,))
-    conn.commit()
-    conn.close()
+@app.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int):
+    deleted = service.delete_task(task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     return
-
